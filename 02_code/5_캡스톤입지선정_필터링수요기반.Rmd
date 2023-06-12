@@ -1,0 +1,216 @@
+```{r}
+#library(tbart) # P-Median 함수가 저장되어 있는 패키지 (버전 지원 X)
+library(geosphere) # 위경도로 거리를 구할 수 있는 패키지
+library(data.table)
+library(tidyverse)
+```
+
+
+```{r}
+df <- read.csv(file="행정동 위경도.csv") 
+str(df)
+```
+
+```{r}
+data <- subset(df, select= c('시군구명', '행정동명','위도','경도','유아인구','공동육아나눔터유무'))
+data
+```
+
+# LSCP - 최적의 시설 개수 도출
+```{r}
+# 거리 계산 함수
+make_dis_mat <- function(lon, lat) { # 경도, 위도
+  n = length(lon)
+  dist_mat <- matrix(NA, n, n)
+  for (i in 1:n) {
+    lon1 <- lon[i]
+    lat1 <- lat[i]
+
+    for (j in 1:n) {
+      lon2 <- lon[j]
+      lat2 <- lat[j]
+      dist_mat[i, j] <- distm(c(lon1, lat1), c(lon2, lat2), fun = distHaversine) # 거리를 1대1 대응을 통해 구함
+    }
+  } 
+  return(dist_mat)
+}
+```
+
+```{r}
+result <- make_dis_mat(data$경도,data$위도)
+c(ncol(result), nrow(result))
+result
+```
+
+```{r}
+# 2.5km 이내 유아인구 수 합산 함수
+cnt_nearby_child = function(dist_mat,child_vec) {
+  nearby_child = rep(NA,length(child_vec)) # Initializing
+  
+  for (i in 1:nrow(dist_mat)) { # nrow : 105 (행정동 개수)
+    child_i = 0 # Initializing
+    
+    for (j in 1:ncol(dist_mat)) { # ncol : 105
+      if (dist_mat[i,j] <= 2500) { # 2.5km 이내
+        child_i = child_i + child_vec[j] # (자신 포함) 근방에 위치하면 더해줌
+      }
+    }
+    nearby_child[i] = child_i 
+  }
+  return(nearby_child)
+}
+```
+
+
+```{r}
+dist_mat = make_dis_mat(data$경도,data$위도)
+
+n_nearby = cnt_nearby_child(dist_mat,data$유아인구)
+nearby_child = data.frame(
+      idx = 1:length(n_nearby),
+      n = n_nearby)
+
+traversal = NULL
+nearby_child = nearby_child %>% arrange(desc(n)) %>% filter(!(idx %in% traversal))
+nearby_child[1,1]
+```
+
+```{r}
+LSCP = function(dist_mat,child_vec) {
+  k = 0 # 설치 개수
+  target = NULL # 설치 위치
+  traversal = NULL # 추가했거나, 추가한 곳 2.5km 이내에 위치한 곳
+  remain = NULL
+  
+  cat('설치 위치: ',target,'\n')
+  cat('남은 아동수: ',sum(child_vec),'\n')
+  remain = c(remain,sum(child_vec))
+  
+  while (sum(child_vec) != 0) { # 커버되지 않은 아동 없을 때까지 반복
+    # 입지 후보지 대상으로 2.5km 이내 합산 유아인구수 계산 후 내림차순 정렬
+    n_nearby = cnt_nearby_child(dist_mat,child_vec)
+    nearby_child = data.frame(
+      idx = 1:length(n_nearby),
+      n = n_nearby)
+    nearby_child = nearby_child %>% arrange(desc(n)) %>% filter(!(idx %in% traversal)) # 추가된 곳 2.5km 이내에 위치한 곳은 제외하는 필터링
+    
+    # 선정된 후보지 추가
+    point = nearby_child[1,1]
+    target = c(target,point)
+    k = k + 1
+    
+    # 선정된 후보지 근방의 아동수 0으로 할당
+    for (i in 1:ncol(dist_mat)) {
+      if (dist_mat[point,i] <= 2500) {
+        child_vec[i] = 0
+        traversal = c(traversal,i)
+      }
+    }
+    remain = c(remain,sum(child_vec))
+    cat('설치 위치: ',target,'\n')
+    cat('남은 유아수: ',sum(child_vec),'\n')
+    cat('---------------------------------------------------------------------\n')
+  }
+  return(list(k = k,target = target,remain = remain))
+}
+```
+
+```{r}
+# main
+dist_mat = make_dis_mat(data$경도,data$위도)
+
+needed_k = LSCP(dist_mat,data$유아인구)
+needed_k$remain %>% length # 모두 커버하기 위해서는 28개의 행정동 필요
+```
+
+```{r}
+score = needed_k$remain[c(1:28)] - needed_k$remain[c(2:29)]
+plot(1:28, score,type = 'l') # elbow point로 시설 개수 설정
+```
+
+
+
+# MCLP - 반경 내 수요 최대화
+```{r}
+#select_by_max_child(8,dist_mat,data$nearby_child)
+nearby_child <- data$nearby_child
+df <- cbind(1:length(nearby_child),nearby_child)
+df <- df[order(df[,2],decreasing = TRUE),]
+head(df)
+```
+
+```{r}
+exist = rownames(subset(data, 공동육아나눔터유무==1))
+exist
+```
+  
+```{r}
+# 5km 이내 중복되는 시설 없게 선별하는 함수
+select_by_max_child = function(num_k,dist_mat,nearby_child) {
+  df = cbind(1:length(nearby_child),nearby_child)
+  df = df[order(df[,2],decreasing = TRUE),] # 유아수에 따라 정렬
+  
+  current = 2
+  target = c(3,25,31,49,86,98,1) # 공동육아나눔터 현존 행정동 + 첫번째는 무조건 추가
+  while (length(target) < 6+num_k) { # 최종 입지 더 찾아야 함
+    idx = 7
+    traversal = target[idx] 
+    flag = 'Y'
+    
+    cat('current:',df[current,1],'traversal:',df[traversal,1],'\n') # current: index
+    
+    while (traversal <= target[length(target)]) { # 아직 다 안 돌았음
+      if (dist_mat[df[current,1],df[traversal,1]] < 5000) { # 5km 이내라면
+        flag = 'N'
+        break
+      }
+      if (traversal == target[length(target)]) break
+      idx = idx + 1
+      traversal = target[idx] # 다음것 탐색
+    }
+    if (flag == 'Y') target = c(target,current)
+    
+    cat('-------------------------','flag:',flag,'target:',df[target,1],'\n')
+    
+    current = current + 1
+  }
+  return(df[target,1])
+}
+```
+
+
+```{r}
+# 데이터셋
+
+dist_mat = make_dis_mat(data$경도,data$위도)
+data$nearby_child = cnt_nearby_child(dist_mat,data$유아인구)
+
+data %>% arrange(desc(nearby_child)) %>% head(4) # 8개 추출해 봄.
+
+# 입지 선정
+p4 = select_by_max_child(4, dist_mat,data$nearby_child)
+```
+
+```{r}
+data[p8,] # 단순히 유아인구로 정렬한 위 df와 비교
+```
+* 일요일까지 _ 전체 행정동 대상 위경도 데이터셋 O -> 결과 확인
+* 월요일 _ 결과에서 행정동 ?개에 대해 특징 (건물은 가능하다면?) / 현재 공동육아나눔터 위치와 겹치지 않은 곳 위주로 (시각화 확인)
+* 화요일 _ 회의 
+
+현재 공동육아나눔터 위치 시각화 (EDA 파일에 있음)
+최대한 겹치지 않게끔 위 8개 중 3개(or 4개) 최종적으로 고르기
+행정동 깊이 파서 -> 행정동의 특징 파악. (행정동 내 건물까지 추천해줄 수 있으면 좋을 듯)
+
+
+```{r}
+# screeplot
+plot(x = 1:8, y = data[p8,'nearby_child'], 
+     type = 'b', ylab = '')
+#dist_mat[29,27]
+```
+
+```{r}
+data[c(79, 47, 11, 55, 53),]
+```
+
