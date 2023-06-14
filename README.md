@@ -33,17 +33,11 @@
 - 현존 공동육아나눔터는 아동 인구, 신혼부부 인구 등 인구 분포를 고려하지 못한 배치였음
 
 #### 전체 행정동 수요 기반 입지 결과
-![전채행정동lscp결과](https://github.com/mminiiii/OptimalLocationSelection/assets/90174257/8be5d294-e0e5-441a-8604-5b2ff3778edc)
+![화면 캡처 2023-06-14 214348](https://github.com/mminiiii/OptimalLocationSelection/assets/90174257/8534bf33-1daf-47ec-85b0-1684a3b57c92)
 
-(분홍색 = 현존 공동육아나눔터 / 노란색 = 입지선정지)
-
-한부모 가정/저소득층이 많은 서울 서부와 북부, 20~40대 직장인구가 많은 한강 부근, 주거지역인 서울 외곽 위주로 고르게 최종 입지가 선정됨
 
 #### 필터링 행정동 수요 기반 입지 결과
 LSCP의 시설물 설치 개수에 따른 미충족 수요 그래프에서의 elbow point인 4를 최적의 시설물 개수로 보고, n=4인 MCLP 적용
-![필터링행정동lscp결과](https://github.com/mminiiii/OptimalLocationSelection/assets/90174257/43b165f2-7f2a-4b98-b8e0-11274a1903ac)
-- 강남구 역삼2동, 강서구 화곡4동, 노원구 하계1동, 강서구 방화1동
 
-(분홍색 = 현존 공동육아나눔터 / 노란색 = 입지선정지)
+![화면 캡처 2023-06-14 214420](https://github.com/mminiiii/OptimalLocationSelection/assets/90174257/a1db93c6-5ea0-472a-8444-f6ff60422065)
 
-한부모 가정/저소득층의 수가 상대적으로 높은 강서구 및 노원구, 아동 인구와 20~40대 직장인구가 많은 강남구 내의 행정동을 최종 입지로 선정
